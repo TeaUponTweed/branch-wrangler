@@ -1,48 +1,21 @@
-Git Issues:
-- asking Nick lots of questions
-- rebasing every time a mainline branch moves forward
-- multiple people changing the same code
-- unmanaged branches
-- testing
-- enforcing JIRA (git) standards: branch names, commit message standards, test standards
-- getting code reviews
-- nasty rebases
-- people being selfish with cloud resources
+Audience:
+---------
+Development teams that use a rebase and merge git workflow
 
-Ideas:
-- need to maintain a high signal to noise ratio
-- make Nick's job easier
-- public shaming for lack of testing
-- stats (lines removed, commits)
-- mattermost bot that makes jira tickets
+Purpose:
+---------
+The goal of this project is to make Nick's job easier. If you don't know Nick, he/she is the
+developer on your team who is in charge of rebasing all the development branches when the
+mainline branch moves forward. This consumes a lot of Nick's time, and Nick's time is valuable.
+Now Nick can get to fixing rebase conflicts faster.
 
-Names:
-- branch cowboy: wrangling git branches since 2018
-- tigger: your eager git assistant
-
-Projects:
-- mattermost jira ticket maker bot
-- automatic git branch rebasing bot
-- public shaming of untested pushed code
-
---------------------
-Actions:
-- setup branch chain: gbw add --name chain branch1 branch2 [...]
-  * let user know if breaks previous chain (fail)
-- list active chains: gbw list
-- upon link moving forward, message rider about whether clean rebase
-  * if clean, ask permission to perform rebases
-  * if not clean, just make it clear
-- break link: gbw rm branch (removes link)
-- break chain: gbw rm chain (removes chain/breaks all links)
-- reorder: give same set of commits but with a different order
-- update: merge detection (updates chain if some branches have been merged)
-- help: gbw help
-
-
-- requirement: a branch can only have one thing its chained to
-
-Commands:
-
-
-
+Usage:
+--------
+gbw help -> get usage information
+gbw fetch -> update remote branch states
+gbw status -> prints whether chains rebase cleanly
+gbw add branch1 branch2 ... -> create chain of remote branch rebase dependencies
+gbw list -> list active chains
+gbw rm branch1 ... -> remove link between specified branch and parent
+gbw rm chain-sha -> remove entire chain of dependencies
+gbw reorder chain-sha -> reorder rebase chain (must include all branches from chain definition)
