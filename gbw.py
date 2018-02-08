@@ -1,22 +1,28 @@
+#!/usr/bin/env python
+
 import pickle
 import hashlib
 import subprocess
-import sys, os
+import sys
+import os
 import time
 
-from typing import List, Dict, NamedTuple, Callable, Optional, Tuple, Iterable
+from typing import List, NamedTuple
 
 
 class Branch(NamedTuple):
     name: str
     sha: str
 
+
 def git_call(cmd: str) -> str:
     completed = subprocess.run('git {}'.format(
         cmd).split(), check=True, stdout=subprocess.PIPE)
     return completed.stdout.decode("utf-8").replace('"', '').rstrip()
 
+
 Chain = List[Branch]
+
 
 class Wrangler(object):
     def __init__(self):
@@ -28,8 +34,8 @@ class Wrangler(object):
         self.wrangler_object_file = os.path.join(self.wrangler_dir, 'wrangler.pkl')
         self.start_time = time.time()
         if os.path.exists(self.wrangler_lock_file):
-            print('The wrangler data base is locked. If this is in error, manuall delete the LOCK file in the .wrangler directory',
-                file=sys.stderr)
+            print('The wrangler data base is locked. If this is in error, manual delete the LOCK file in the .wrangler'
+                  'directory', file=sys.stderr)
             exit(1)
         else:
             with open(self.wrangler_lock_file, 'w') as lock:
@@ -47,16 +53,15 @@ class Wrangler(object):
         else:
             self.chains = {}
 
-
     def status(self):
-        '''
+        """
         states:
         * valid
         * fast forwardable
         * not fast forwardable
         * partially merged
         * invalid (missing links)
-        '''
+        """
         pass
 
     def add_chain(self, *branch_names):
@@ -64,25 +69,25 @@ class Wrangler(object):
             print('Need at least two branches to make a chain', file=sys.stderr)
             exit(1)
 
-        all_branches = set(git_call(
-            'branch --remotes --format="%(refname:lstrip=3)').split())
+        all_branches = set(git_call('branch --remotes --format="%(refname:lstrip=3)').split())
         # check that branch names are valid
         unknown_branches = set(branch_names) - all_branches
         if unknown_branches:
             print('branch(es) [ {} ] not in remote refs'.format(
-                ' '.join(sorted(unknown_branches))), file=sys.stderr)
+                  ' '.join(sorted(unknown_branches))), file=sys.stderr)
             exit(1)
         # check that branches not already tracked
         no_branches_already_chained = True
 
-        for chainname, branches in self.chains.items():
+        for chain_name, branches in self.chains.items():
             already_tracked_branches = set(branch_names) & set(branches)
             if already_tracked_branches:
                 print('branch(es) {} already tracked in chain {}'.format(
-                    ' '.join(already_tracked_branches), chainname), file=sys.stderr)
+                    ' '.join(already_tracked_branches), chain_name), file=sys.stderr)
                 no_branches_already_chained = False
         if not no_branches_already_chained:
             exit(1)
+
         # add chain
         chain_name = hashlib.sha256(
             ' '.join(branch_names).encode("utf-8")).hexdigest()
@@ -94,7 +99,6 @@ class Wrangler(object):
         # TODO shorter (still unique hash length)
         for name, branches in self.chains.items():
             print('{}: {}'.format(name[:12], '->'.join(branches)))
-
 
     def remove_link(self, *branch_names):
         if not branch_names:
@@ -126,7 +130,7 @@ class Wrangler(object):
             if not valid_chains:
                 print('No chain matches {}'.format(chain_name), file=sys.stderr)
                 exit(1)
-            if len(valid_chains ) > 1:
+            if len(valid_chains) > 1:
                 print('chain {} is ambiguous'.format(chain_name), file=sys.stderr)
                 exit(1)
             self.chains.pop(*valid_chains)
@@ -138,9 +142,9 @@ class Wrangler(object):
         pass
 
     def fast_forward_chain(self, chain):
-        '''
+        """
         rebase chain
-        '''
+        """
         pass
 
     def handle_merges(self, chain):
