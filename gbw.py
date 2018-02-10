@@ -161,22 +161,28 @@ class Wrangler(object):
             # HEAD = git
             try:
                 git_call('stash')
-                git_call('git branch -D tmp/cowboy-checkpoint')
-                git_call('git checkout -b tmp/cowboy-checkpoint')
-                git_call('git branch -D tmp/cowboy-checkpoint')
-                git_call('git checkout -b tmp/rebase-head')
+                current_branch_name = git_call('rev-parse --abbrev-ref HEAD')
+                # git_call('git branch -D tmp/cowboy-checkpoint')
+                # git_call('git checkout -b tmp/cowboy-checkpoint')
+                git_call('git branch -D tmp/cowboy-rebase-start')
+                git_call('git checkout -b tmp/cowboy-rebase-start')
 
-            sys.stdout.write('[ {}'.format(branches[0]))
-            for current_branch, next_branch in pairwise(branches):
-                try:
-                    git_call('rebase --onto', current_branch.name, next_branch.name)
-                except subprocess.CalledProcessError:
-                    ERROR("Cant rebase {} onto {}".format(current_branch.name, next_branch.name))
-                    sys.stdout.write(' XX ')
-                else:
-                    sys.stdout.write(' <- ')
-                sys.stdout.write(next_branch.name)
-            print(' ]')
+                sys.stdout.write('[ {}'.format(branches[0]))
+                for current_branch, next_branch in pairwise(branches):
+                    try:
+                        git_call('rebase --onto', current_branch.name, next_branch.name)
+                    except subprocess.CalledProcessError:
+                        ERROR("Cant rebase {} onto {}".format(current_branch.name, next_branch.name))
+                        sys.stdout.write(' XX ')
+                    else:
+                        sys.stdout.write(' <- ')
+                    sys.stdout.write(next_branch.name)
+                print(' ]')
+            finally:
+                git_call('git checkout', current_branch_name)
+                git_call('reset HEAD --hard')
+                git_call('stash pop')
+
             # first = get_hash(branches[0].name)
             # last = get_hash(branches[-1].name)
 
