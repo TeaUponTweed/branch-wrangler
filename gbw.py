@@ -7,38 +7,105 @@ import sys
 import os
 import time
 import fire
+import itertools as it
+from typing import List, NamedTuple, Set
 
-from typing import List, NamedTuple
 
+Hash = str
+BranchName = str
+ChainName = str
 
 class Branch(NamedTuple):
-    name: str
-    sha: str
+    name: BranchName
+    sha: Hash
+
+Chain = List[Branch]
 
 
-def git_call(cmd: str) -> str:
+def git_call(*cmd: List[str]) -> str:
+    cmd = ' '.join(cmd)
     completed = subprocess.run('git {}'.format(
         cmd).split(), check=True, stdout=subprocess.PIPE)
     return completed.stdout.decode("utf-8").replace('"', '').rstrip()
 
 
+def get_all_remote_branch_names() -> Set[BranchName]:
+    return set(git_call('branch --remotes --format="%(refname:lstrip=2)').split())
+
+
+def get_all_remote_branches() -> Set[Branch]:
+    # return set(Branch(b, get_hash(b)) for b in get_all_remote_branch_names())
+    return set(make_chain(get_all_remote_branch_names()))
+
+
+def get_hash(branch) -> Hash:
+    return git_call('rev-parse', branch)
+
+
+def get_remotes() -> Set[str]:
+    return set(git_call('remote').split())
+
+
+def make_chain(branch_names) -> Chain:
+    return [Branch(b, get_hash(b)) for b in branch_names]
+
+
+def get_chain_name(branch_names) -> ChainName:
+    return hashlib.sha256(
+    ' '.join(branch_names).encode("utf-8")).hexdigest()
+
+def FATAL(msg):
+    print(msg, file=sys.stderr)
+    exit(1)
+
+
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = it.tee(iterable)
+    next(b, None)
+    return zip(a, b)
+
+
+_VERBOSE = True
+_REALLY_VERBOSE = True
+def DEBUG(msg):
+    if _VERBOSE:
+        print(msg, file=sys.stderr)
+
+
+def DEBUG2(msg):
+    if _REALLY_VERBOSE:
+        print(msg, file=sys.stderr)
+
+
+
+def ERROR(msg):
+    print(msg, file=sys.stderr)
+
+
+def LOG(msg):
+    print(msg, file=sys.stderr)
+
 Chain = List[Branch]
+
+def _is_remote_specified(branch: BranchName) -> bool:
+    remotes = get_remotes()
+    retmote_name = branch.split('/')[0]
+    return retmote_name in remotes
 
 
 class Wrangler(object):
     def __init__(self):
-        self.verbose = True
         self.git_dir = git_call('rev-parse --show-toplevel')
         self.wrangler_dir = os.path.join(self.git_dir, '.wrangler')
         os.makedirs(self.wrangler_dir, exist_ok=True)
         self.wrangler_lock_file = os.path.join(self.wrangler_dir, 'LOCK')
         self.wrangler_object_file = os.path.join(self.wrangler_dir, 'wrangler.pkl')
         self.start_time = time.time()
+        self.default_remote = 'origin'
         if os.path.exists(self.wrangler_lock_file):
-            print('The wrangler data base is locked. If this is in error, '
-                  'manually delete the LOCK file in the .wrangler directory',
-                  file=sys.stderr)
-            exit(1)
+            FATAL('The wrangler data base is locked. If this is in error, '
+                'manually delete the LOCK file in the .wrangler directory')
         else:
             with open(self.wrangler_lock_file, 'w') as lock:
                 lock.write('{}\n'.format(time))
@@ -54,13 +121,27 @@ class Wrangler(object):
                     self.chains = old_wrangler.chains
         else:
             self.chains = {}
-    def _display_chainname(self, chainame):
-        # TODO calculate dynamically
-        unambiguous_length = 8
-        return chainame[:unambiguous_length]
 
-    def status(self):
-        all_branches = self._get_all_remote_branches()
+        # TODO calculate unambiguous_chain_name_length dynamically
+        self.unambiguous_chain_name_length = 8
+
+    def set_default_remote(self, remote_name: str):
+        all_remotes = get_remotes()
+        if remote_name not in all_remotes:
+            FATAL('Unknown remote {}'.format(remote_name))
+
+        if self.default_remote is None:
+            LOG('Setting default remote to {}'.format(remote_name))
+        else:
+            LOG('Changing default remote from {} to {}'.format(self.default_remote, remote_name))
+
+        self.default_remote = remote_name
+
+    def _display_chainname(self, chainame: ChainName) -> ChainName:
+        return chainame[:self.unambiguous_chain_name_length]
+
+    def status(self) -> None: # CONST
+        all_branches = get_all_remote_branches()
         for chainname, branches in self.chains.items():
             up_to_date = True
             fast_forwardable = False
@@ -75,9 +156,31 @@ class Wrangler(object):
                     not_up_to_date('{} no longer in remotes. Was it merged?')
                 # TODO Check if branch points have changed
                 # TODO Check if any links in chain have been merged
-
+    
             # TODO Check if chain can apply cleanly
+            # HEAD = git
+            try:
+                git_call('stash')
+                git_call('git branch -D tmp/cowboy-checkpoint')
+                git_call('git checkout -b tmp/cowboy-checkpoint')
+                git_call('git branch -D tmp/cowboy-checkpoint')
+                git_call('git checkout -b tmp/rebase-head')
 
+            sys.stdout.write('[ {}'.format(branches[0]))
+            for current_branch, next_branch in pairwise(branches):
+                try:
+                    git_call('rebase --onto', current_branch.name, next_branch.name)
+                except subprocess.CalledProcessError:
+                    ERROR("Cant rebase {} onto {}".format(current_branch.name, next_branch.name))
+                    sys.stdout.write(' XX ')
+                else:
+                    sys.stdout.write(' <- ')
+                sys.stdout.write(next_branch.name)
+            print(' ]')
+            # first = get_hash(branches[0].name)
+            # last = get_hash(branches[-1].name)
+
+            # diff = git_call('diff ')
             if up_to_date:
                 print('Up to date')
             if not up_to_date and fast_forwardable:
@@ -91,88 +194,131 @@ class Wrangler(object):
         * partially merged
         * invalid (missing links)
         """
-    def handle_merges(self, dryrun=False):
+
+
+    def _prepend_remote_to_branch_name(self, branch: BranchName) -> BranchName:
+        if _is_remote_specified(branch):
+            return branch
+        elif self.default_remote is None:
+            FATAL('Specify remote for {} or set default remote'.format(branch))
+        else:
+            return '{}/{}'.format(self.default_remote, branch)
+
+    def handle_merges(self, dryrun: bool = False):
         pass
 
-    def _get_all_remote_branches(self):
-        return set(git_call('branch --remotes --format="%(refname:lstrip=3)').split())
-
-    def add_chain(self, *branch_names):
+    def add_chain(self, *branch_names: List[BranchName]):
+        branch_names = list(map(self._prepend_remote_to_branch_name, branch_names))
         if len(branch_names) <= 1:
-            print('Need at least two branches to make a chain', file=sys.stderr)
-            exit(1)
+            FATAL('Need at least two branches to make a chain')
 
-        all_branches = self._get_all_remote_branches()
+        all_branches = get_all_remote_branch_names()
         # check that branch names are valid
         unknown_branches = set(branch_names) - all_branches
         if unknown_branches:
-            print('branch(es) [ {} ] not in remote refs'.format(
-                  ' '.join(sorted(unknown_branches))), file=sys.stderr)
-            exit(1)
+            for branch in unknown_branches:
+                if not _is_remote_specified(branch):
+                    ERROR('Need to specify remote for {} for set default remote'.format(branch))
+                else:
+                    ERROR('Unknown branch {}'.format(branch))
+
+            FATAL('branch(es) [ {} ] not in remote refs'.format(
+                  ' '.join(sorted(unknown_branches))))
         # check that branches not already tracked
         no_branches_already_chained = True
 
-        for chain_name, branches in self.chains.items():
-            already_tracked_branches = set(branch_names) & set(branches)
+        for chainname, branches in self.chains.items():
+            already_tracked_branches = set(branch_names) & set(b.name for b in branches)
             if already_tracked_branches:
-                print('branch(es) {} already tracked in chain {}'.format(
-                    ' '.join(already_tracked_branches), chain_name), file=sys.stderr)
+                FATAL('branch(es) {} already tracked in chain {}'.format(
+                    ' '.join(already_tracked_branches), self._display_chainname(chainname)))
                 no_branches_already_chained = False
+
         if not no_branches_already_chained:
-            exit(1)
+            FATAL('Not adding chain')
 
         # add chain
-        chain_name = hashlib.sha256(
-            ' '.join(branch_names).encode("utf-8")).hexdigest()
-        assert chain_name not in self.chains, 'Wow! you won the lottery and got a hash collision!'
-        # TODO construct branch objects with shas
-        self.chains[chain_name] = list(branch_names)
+        chainname = get_chain_name(branch_names)
 
-    def list_chains(self):
+        if chainname in self.chains:
+            FATAL('Wow! you won the lottery and got a hash collision!')
+
+        self.chains[chainname] = make_chain(branch_names)#[Branch(branch_name, get_hash(branch_name)) for branch_name in branch_names]
+
+    def list_chains(self) -> None: # CONST
         # TODO shorter (still unique hash length)
         for name, branches in self.chains.items():
-            print('{}: {}'.format(self._display_chainname(name), '->'.join(branches)))
+            print('{}: [ {} ]'.format(self._display_chainname(name), ' <- '.join(b.name for b in branches)))
 
-    def remove_link(self, *branch_names):
-        if not branch_names:
-            return
+    def remove_link(self, *branch_names_to_remove: List[str], dryrun: bool = False, _first_call: bool=True):
+        branch_names_to_remove = set(
+            map(self._prepend_remote_to_branch_name, branch_names_to_remove))
 
-        branch_names = set(branch_names)
-        for branch_name_to_remove in branch_names:
+        if not branch_names_to_remove and _first_call: 
+            FATAL('No links to remove specified')
+
+        for branch_name_to_remove in branch_names_to_remove:
             for chainname, branches in list(self.chains.items()):
-                if branch_name_to_remove in branches:
-                    if self.verbose:
-                        print('Removing branch {} from chain {}'.format(
-                            branch_name_to_remove, chainname), file=sys.stderr)
-                    self.chains[chainname].remove(branch_name_to_remove)
-                    if len(self.chains[chainname]) < 2:
-                        if self.verbose:
-                            print('No more links in chain. Removing chain {}'.format(chainname), file=sys.stderr)
-                        self.chains.pop(chainname)
+                full_chainname = chainname
+                chainname = self._display_chainname(chainname)
+                if branch_name_to_remove in (b.name for b in branches):
+                    if dryrun:
+                        LOG('Would remove link {} from {}'.format(branch_name_to_remove, chainname))
+                    else:
+                        DEBUG('Removing link {} from chain {}'.format(branch_name_to_remove, chainname))
+                        new_branch = [
+                            b for b in branches if b.name != branch_name_to_remove]
+                        self.chains.pop(full_chainname)
+                        full_chainname = get_chain_name([b.name for b in new_branch])
+                        self.chains[full_chainname] = new_branch
+                    if len(self.chains[full_chainname]) < 2:
+                        LOG('No more links in chain. Removing chain {}'.format(self._display_chainname(full_chainname)))
+                        self.chains.pop(full_chainname)
 
-                    branch_names.remove(branch_name_to_remove)
-                    return self.remove_link(*branch_names)
-            print('Can\'t remove unknown link {}'.format(branch_name_to_remove))
-            exit(1)
+                    branch_names_to_remove.remove(branch_name_to_remove)
+                    return self.remove_link(*branch_names_to_remove, dryrun=dryrun, _first_call=False)
 
-    def remove_chain(self, *chain_names):
-        for chain_name in chain_names:
+            FATAL('Can\'t remove unknown link {}'.format(branch_name_to_remove))
+
+    def remove_chain(self, *chainnames: List[ChainName], dryrun: bool = False) -> None:
+        for chainname in chainnames:
             # TODO need sha substringiness
             valid_chains = [name for name in self.chains.keys()
-                            if name.startswith(chain_name)]
+                            if name.startswith(chainname)]
             if not valid_chains:
-                print('No chain matches {}'.format(chain_name), file=sys.stderr)
-                exit(1)
+                FATAL('No chain matches {}'.format(chainname))
             if len(valid_chains) > 1:
-                print('chain {} is ambiguous'.format(chain_name), file=sys.stderr)
-                exit(1)
-            self.chains.pop(*valid_chains)
+                FATAL('chain {} is ambiguous'.format(chainname))
 
-    def reorder_chain(self, branch_names):
-        pass
+            if dryrun:
+                print('Would remove chain {}'.format(chainname))
+            else:
+                self.chains.pop(*valid_chains)
 
-    def fetch(self):
-        pass
+    def reorder_chain(self, *branch_names: List[str]) -> None:
+        branch_names = list(
+            map(self._prepend_remote_to_branch_name, branch_names))
+        
+        for chainname, branches in list(self.chains.items()):
+            full_chainname = chainname
+            chainname = self._display_chainname(chainname)
+            if set(branch_names) & set(b.name for b in branches):
+                if set(branch_names) != set(b.name for b in branches):
+                    FATAL('[ {} ] intersects with chain {} but includes different branches'.format(
+                        ' <- '.join(branch_names), chainname))
+                else:
+                    if branch_names == [b.name for b in branches]:
+                        FATAL('Same order as chain {}'.format(chainname))
+                    LOG('Reordering chain [ {} ] to [ {} ]'.format(' <- '.join(b.name for b in branches), ' <- '.join(branch_names)))
+                    self.chains.pop(full_chainname)
+                    self.chains[get_chain_name(branch_names)] = make_chain(branch_names)
+                    return
+
+        FATAL('No chain matching [{}]'.format(' '.join(branch_names)))
+
+    def fetch(self) -> None:
+        git_call('fetch')
+        self.status()
 
     def fast_forward_chain(self, chain):
         """
@@ -180,7 +326,11 @@ class Wrangler(object):
         """
         pass
 
-    def dump(self):
+    def dump(self) -> None:
+        '''
+        Saves wrangler state to disk as a pickled object in .wrangler directort
+        '''
+        # TODO make wrangler more robust/sharable by checking in wrangler objects as git commits
         with open(self.wrangler_object_file, 'wb') as out:
             pickle.dump(self, file=out)
         os.remove(self.wrangler_lock_file)
