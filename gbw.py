@@ -153,7 +153,7 @@ class Wrangler(object):
             for branch in branches:
                 # Check if all branches chain still in remote
                 if branch not in all_branches:
-                    not_up_to_date('{} no longer in remotes. Was it merged?')
+                    not_up_to_date('{} no longer in remotes. Was it merged?'.format(branch))
                 # TODO Check if branch points have changed
                 # TODO Check if any links in chain have been merged
     
@@ -164,8 +164,8 @@ class Wrangler(object):
                 current_branch_name = git_call('rev-parse --abbrev-ref HEAD')
                 # git_call('git branch -D tmp/cowboy-checkpoint')
                 # git_call('git checkout -b tmp/cowboy-checkpoint')
-                git_call('git branch -D tmp/cowboy-rebase-start')
-                git_call('git checkout -b tmp/cowboy-rebase-start')
+                git_call('branch -D tmp/cowboy-rebase-start')
+                git_call('checkout -b tmp/cowboy-rebase-start')
 
                 sys.stdout.write('[ {}'.format(branches[0]))
                 for current_branch, next_branch in pairwise(branches):
