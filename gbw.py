@@ -174,6 +174,8 @@ class Wrangler(object):
                     except subprocess.CalledProcessError:
                         ERROR("Cant rebase {} onto {}".format(current_branch.name, next_branch.name))
                         sys.stdout.write(' XX ')
+                        git_call('rebase --abort')
+
                     else:
                         sys.stdout.write(' <- ')
                     sys.stdout.write(next_branch.name)
