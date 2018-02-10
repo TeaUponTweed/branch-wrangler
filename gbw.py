@@ -35,8 +35,9 @@ class Wrangler(object):
         self.wrangler_object_file = os.path.join(self.wrangler_dir, 'wrangler.pkl')
         self.start_time = time.time()
         if os.path.exists(self.wrangler_lock_file):
-            print('The wrangler data base is locked. If this is in error, manual delete the LOCK file in the .wrangler'
-                  'directory', file=sys.stderr)
+            print('The wrangler data base is locked. If this is in error, '
+                  'manually delete the LOCK file in the .wrangler directory',
+                  file=sys.stderr)
             exit(1)
         else:
             with open(self.wrangler_lock_file, 'w') as lock:
@@ -53,8 +54,35 @@ class Wrangler(object):
                     self.chains = old_wrangler.chains
         else:
             self.chains = {}
+    def _display_chainname(self, chainame):
+        # TODO calculate dynamically
+        unambiguous_length = 8
+        return chainame[:unambiguous_length]
 
     def status(self):
+        all_branches = self._get_all_remote_branches()
+        for chainname, branches in self.chains.items():
+            up_to_date = True
+            fast_forwardable = False
+            def not_up_to_date(msg):
+                up_to_date = False
+                sys.stdout.write('\n\t' + msg)
+
+            sys.stdout.write('{}: '.format(self._display_chainname(chainname)))
+            for branch in branches:
+                # Check if all branches chain still in remote
+                if branch not in all_branches:
+                    not_up_to_date('{} no longer in remotes. Was it merged?')
+                # TODO Check if branch points have changed
+                # TODO Check if any links in chain have been merged
+
+            # TODO Check if chain can apply cleanly
+
+            if up_to_date:
+                print('Up to date')
+            if not up_to_date and fast_forwardable:
+                print('Fast forwardable')
+
         """
         states:
         * valid
@@ -63,14 +91,18 @@ class Wrangler(object):
         * partially merged
         * invalid (missing links)
         """
+    def handle_merges(self, dryrun=False):
         pass
+
+    def _get_all_remote_branches(self):
+        return set(git_call('branch --remotes --format="%(refname:lstrip=3)').split())
 
     def add_chain(self, *branch_names):
         if len(branch_names) <= 1:
             print('Need at least two branches to make a chain', file=sys.stderr)
             exit(1)
 
-        all_branches = set(git_call('branch --remotes --format="%(refname:lstrip=3)').split())
+        all_branches = self._get_all_remote_branches()
         # check that branch names are valid
         unknown_branches = set(branch_names) - all_branches
         if unknown_branches:
@@ -99,7 +131,7 @@ class Wrangler(object):
     def list_chains(self):
         # TODO shorter (still unique hash length)
         for name, branches in self.chains.items():
-            print('{}: {}'.format(name[:12], '->'.join(branches)))
+            print('{}: {}'.format(self._display_chainname(name), '->'.join(branches)))
 
     def remove_link(self, *branch_names):
         if not branch_names:
@@ -146,9 +178,6 @@ class Wrangler(object):
         """
         rebase chain
         """
-        pass
-
-    def handle_merges(self, chain):
         pass
 
     def dump(self):
