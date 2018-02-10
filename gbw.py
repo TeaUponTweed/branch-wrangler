@@ -152,8 +152,8 @@ class Wrangler(object):
             sys.stdout.write('{}: '.format(self._display_chainname(chainname)))
             for branch in branches:
                 # Check if all branches chain still in remote
-                if branch not in all_branches:
-                    not_up_to_date('{} no longer in remotes. Was it merged?'.format(branch))
+                if branch.name not in all_branches:
+                    not_up_to_date('{} no longer in remotes. Was it merged?'.format(branch.name))
                 # TODO Check if branch points have changed
                 # TODO Check if any links in chain have been merged
     
@@ -164,10 +164,14 @@ class Wrangler(object):
                 current_branch_name = git_call('rev-parse --abbrev-ref HEAD')
                 # git_call('git branch -D tmp/cowboy-checkpoint')
                 # git_call('git checkout -b tmp/cowboy-checkpoint')
-                git_call('branch -D tmp/cowboy-rebase-start')
+                try:
+                    git_call('branch -D tmp/cowboy-rebase-start')
+                except subprocess.CalledProcessError:
+                    pass
+
                 git_call('checkout -b tmp/cowboy-rebase-start')
 
-                sys.stdout.write('[ {}'.format(branches[0]))
+                sys.stdout.write('[ {}'.format(branches[0].name))
                 for current_branch, next_branch in pairwise(branches):
                     try:
                         git_call('rebase --onto', current_branch.name, next_branch.name)
@@ -181,7 +185,7 @@ class Wrangler(object):
                     sys.stdout.write(next_branch.name)
                 print(' ]')
             finally:
-                git_call('git checkout', current_branch_name)
+                git_call('checkout', current_branch_name)
                 git_call('reset HEAD --hard')
                 git_call('stash pop')
 
