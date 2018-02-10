@@ -6,6 +6,7 @@ import subprocess
 import sys
 import os
 import time
+import fire
 
 from typing import List, NamedTuple
 
@@ -159,9 +160,7 @@ class Wrangler(object):
 def main():
     try:
         w = Wrangler()
-        command = sys.argv[1]
-        command = getattr(w, command)
-        command(*sys.argv[2:])
+        fire.Fire(w)
     finally:
         w.dump()
 
